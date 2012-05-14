@@ -159,17 +159,19 @@ function external_data_field_presave($entity_type, $entity, $field, $instance, $
 		//exit();
 	}
 	foreach($items as $key=>&$item){
-		if(array_key_exists('external_value',$item['ed_widget'])){
-			$item['external_value'] = $item['ed_widget']['external_value'];	
-		}
-		if(array_key_exists('unverified_external_value',$item['ed_widget'])){
-			$item['unverified_external_value'] = $item['ed_widget']['unverified_external_value'];
-		}
-		if(array_key_exists('external_url_called',$item['ed_widget'])){
-			$item['external_url_called'] = $item['ed_widget']['external_url_called'];
-		}
-		if(array_key_exists('lock_value',$item['ed_widget'])){
-			$item['lock_value'] = $item['ed_widget']['lock_value'];
+		if(array_key_exists('ed_widget', $item)){
+			if(array_key_exists('external_value',$item['ed_widget'])){
+				$item['external_value'] = $item['ed_widget']['external_value'];	
+			}
+			if(array_key_exists('unverified_external_value',$item['ed_widget'])){
+				$item['unverified_external_value'] = $item['ed_widget']['unverified_external_value'];
+			}
+			if(array_key_exists('external_url_called',$item['ed_widget'])){
+				$item['external_url_called'] = $item['ed_widget']['external_url_called'];
+			}
+			if(array_key_exists('lock_value',$item['ed_widget'])){
+				$item['lock_value'] = $item['ed_widget']['lock_value'];
+			}
 		}
 		
 	}
@@ -189,6 +191,13 @@ function external_data_node_load($nodes, $types){
 $_ed_results_cache = array();
 // this is where we run the service call, process it, put the value into "unverified" (and also verified, if the field prferences so specify.
 function external_data_field_load($entity_type, $entities, $field, $instances, $langcode, &$items, $age){
+
+//echo "\n**********************\ncalling field load\n*************************\n";
+
+	if(count($items) > 1){
+		return;
+	}
+
 	global $_ed_results_cache;
 	if($_ed_results_cache == null){
 		$_ed_results_cache = array();
@@ -198,6 +207,7 @@ function external_data_field_load($entity_type, $entities, $field, $instances, $
 		//echo "<pre>".print_r($items, true)."</pre>";
 	//	exit();
 	}
+//	echo __FILE__.__LINE__."<pre>".print_r($instances, true)."</pre>";exit();
 	/*
 	echo __FILE__.__LINE__."<pre>".print_r($instances, true)."</pre>";
 	echo __FILE__.__LINE__."<pre>".print_r($field, true)."</pre>";
@@ -205,10 +215,13 @@ function external_data_field_load($entity_type, $entities, $field, $instances, $
 	echo __FILE__.__LINE__."<pre>".print_r($items, true)."</pre>";
 	*/
 	$field_name = $field['field_name'];
+
+	
+	
 	foreach($entities as $nid=>$entity){
 		$instance = $instances[$nid];
 		$settings = $instance['settings'];
-//	echo __FILE__.__LINE__."<pre>".print_r($entity, true)."</pre>";
+//	echo __FILE__.__LINE__."<pre>".print_r($settings, true)."</pre>";
 		// the settings we use to generate the new value
 		$url = $settings['service_url'];
 		$value_template = $settings['value_template'];
@@ -269,13 +282,14 @@ function external_data_field_load($entity_type, $entities, $field, $instances, $
 		// and write the new value into $item['unverified_external_value'],
 		// and if $track_changes = 'pass_thru', then also write to external_value
 		// and if the new value is different, and there are people to alert, then send the alert.
-		echo "<!-- ".__FILE__.__LINE__." : url is $new_url -->\n";
+	//	echo "<!-- ".__FILE__.__LINE__." : url is $new_url -->\n";
 //		$results = file_get_contents($new_url);
 		
 		if(array_key_exists($new_url, $_ed_results_cache)){
 			$results = $_ed_results_cache[$new_url];		
 		}else{
-			$results = file_get_contents($new_url);
+//			$results = file_get_contents($new_url);
+			$results = Http::get($new_url);
 			
 			if(strlen(trim($results)) == 0){
 				return;
@@ -284,7 +298,7 @@ function external_data_field_load($entity_type, $entities, $field, $instances, $
 			$_ed_results_cache[$new_url] = $results;
 		}
 		
-		$new_text = external_data_process_results($results, $result_format, $value_template);
+		$new_text = external_data_process_results($results, $result_format, $value_template, $entity);
 	//	echo "<!-- ".__FILE__.__LINE__." : new_text is $new_text -->\n";
 		$new_text = _cleanString($new_text);
 		if(preg_match("/Parse error:/", $new_text)){
@@ -308,7 +322,7 @@ function external_data_field_load($entity_type, $entities, $field, $instances, $
 		}		
 	*/	
 		if(($track_changes == 'pass_thru' and $lock_value != "1") or ($lock_value != "1" && $initialized == 0)) {
-		echo "<!-- ".__FILE__.__LINE__." : tc $track_changes : lv $lock_value : i $initialized -->\n";
+	//	echo "<!-- ".__FILE__.__LINE__." : tc $track_changes : lv $lock_value : i $initialized -->\n";
 			$item['external_value'] = $new_text;
 			$item['initialized'] = 1;
 		}else if ($new_text != $old_external_value){
@@ -337,7 +351,7 @@ function external_data_field_load($entity_type, $entities, $field, $instances, $
 		$entity->$field_name = $new_field;
 		// re-saving
 		
-		echo "<!-- ".__FILE__.__LINE__." : about to save ".print_r($item, true)." -->\n";
+	//	echo "<!-- ".__FILE__.__LINE__." : about to save ".print_r($item, true)." -->\n";
 		field_attach_update($entity_type, $entity);
 		//	echo __FILE__.__LINE__."<pre>".print_r($entity, true)."</pre>";
 
@@ -356,8 +370,8 @@ function _cleanString($str){
 	return $str;
 }
 
-function external_data_process_results($results, $result_format, $value_template){
-	
+function external_data_process_results($results, $result_format, $value_template, $entity){
+	//$new_url = token_replace($url, array('entity'=>$entity)); 
 	$new_text = "";
 	if(strtolower($result_format) == "xml"){
 		// gonna turn this simple syntax into php code we can execute.
@@ -380,16 +394,18 @@ function external_data_process_results($results, $result_format, $value_template
 		$value_template = str_replace('{{endloop}}', '<?php } ?>' , $value_template);		
 		$value_template = str_replace('{{endif}}', '<?php }  ?>' , $value_template);		
 		$value_template = preg_replace('/\{\{code:([^\}]+)\}\}/','array_shift($exdataelement->xpath("$1"))', $value_template);
+		$value_template = preg_replace('/\{\{token:([^\}]+)\}\}/','<?php echo token_replace("$1",array("entity"=>$entity));?>', $value_template);
+		
 		$value_template = preg_replace('/\{\{([^\}]+)\}\}/','<?php 
 		$exdatathenode = $inloop ? $exdataelement : $exdataxmldoc ; 
 		$result = $exdatathenode->xpath("$1"); 
 		echo $result[0]; 
 		?>', $value_template);
 		
-		echo "\n<!-- ".__FILE__.__LINE__."\ntemplate is $orig_template\n code is : \n$value_template\n -->\n";
+	//	echo "\n<!-- ".__FILE__.__LINE__."\ntemplate is $orig_template\n code is : \n$value_template\n -->\n";
 		//t[!contains('Author,Dedicated to,Poet',Role)]
 		ob_start();
-		$result = eval("\$inloop = false; ?> ". $value_template ."<?php ");
+		$result = @eval("\$inloop = false; ?> ". $value_template ."<?php ");
 		
 		$new_text = ob_get_contents();
 		ob_end_clean();
@@ -403,6 +419,10 @@ function external_data_process_results($results, $result_format, $value_template
 
 }
 
+/*
+Note, I was using this in one field, and don't want to forget it.
+theme('imagecache_external', array('path' => 'http://servername/servicename/TmsImage.aspx?imgName='.{{code:./FileName}}.'&objId='.token_replace("[node:object_object_id]",array("entity"=>$entity)).'&imgSize=5&ext=.jpg', 'style_name'=> 'thumbnail'))
+*/
 
 
 
@@ -536,6 +556,8 @@ function external_data_field_formatter_view($entity_type, $entity, $field, $inst
    // echo __FILE__.__LINE__."<pre>".print_r($field, true)."</pre>";
 	$field_name = $field['field_name'];
     $element = array();
+			$settings = $instance['settings'];
+//	echo __FILE__.__LINE__."<pre>".print_r($settings, true)."</pre>";
     switch($display['type']){
         case 'external_value_formatter':
         // make render arrays here...
@@ -571,7 +593,7 @@ function external_data_field_formatter_view($entity_type, $entity, $field, $inst
 
 /*
 Sample code:
-$url = 'http://ssemtestdb00:8765/services/MetDataService/MetData.asmx/getTmsObjectDataForObjectNumber?objectNumber=2001.153';
+$url = 'http://servername/servicename/MetData.asmx/getTmsObjectDataForObjectNumber?objectNumber=2001.153';
 external_data_load_rest($url, 'objectdata', 'xml', '');
 $value = external_data_get_value('objectdata', '//Medium');
 $entity_field[0]['value'] = $value;
