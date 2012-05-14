@@ -1,0 +1,11 @@
+; $Id:Exp $
+name = "External Int Data"
+description = "A module for dealing with Integer data from external webservices."
+core = "7.x"
+
+datestamp = "1296601519"
+package = "External Data"
+
+files[] = external_int_data.module
+//files[] = HttpFunctions.php
+
