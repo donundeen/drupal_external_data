@@ -1,0 +1,124 @@
+<?php
+
+
+function external_data_schema(){
+	$schema['external_data_service'] = array(
+    'fields' => array(
+      'id' => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+        'description' => 'The primary identifier for the web service.',
+      ),
+      'name' => array(
+        'type' => 'varchar',
+        'length' => '32',
+        'not null' => TRUE,
+        'description' => 'The name of the web service.',
+      ),
+      'label' => array(
+        'type' => 'varchar',
+        'length' => '255',
+        'not null' => TRUE,
+        'description' => 'The label of the web service.',
+      ),
+      'url' => array(
+        'type' => 'varchar',
+        'length' => '255',
+        'not null' => TRUE,
+        'description' => 'The url of the web service (SOAP: url of WSDL. REST: initial (non-method) part of URL).',
+      ),
+      'service_type' => array(
+        'type' => 'varchar',
+        'length' => '4',
+        'not null' => TRUE,
+        'description' => 'The type of the web service (REST or SOAP).',
+      ),
+      'username' => array(
+        'type' => 'varchar',
+        'length' => '255',
+        'not null' => TRUE,
+        'description' => 'The authentication username for the web service.',
+      ),
+      'password' => array(
+        'type' => 'varchar',
+        'length' => '255',
+        'not null' => TRUE,
+        'description' => 'The authentication password for the web service.',
+      ),
+    ),
+    'primary key' => array('id'),
+    'unique keys' => array(
+      'name' => array('name'),
+    ),
+  );
+  $schema['external_data_method'] = array(
+    'fields' => array(
+      'id' => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+        'description' => 'The primary identifier for the web service method.',
+      ),
+	  'external_data_service_id' => array(
+        'type' => 'int',
+        'length' => '32',
+        'not null' => TRUE,
+        'description' => 'The Web Service Used.',
+      ),
+      'label' => array(
+        'type' => 'varchar',
+        'length' => '255',
+        'not null' => FALSE,
+        'description' => 'The label of the web service method.',
+      ),
+      'name' => array(
+        'type' => 'varchar',
+        'length' => '255',
+        'not null' => TRUE,
+        'description' => 'The name of the web service method (REST: the method-name-and-fields part of url (use {varname} for variables). SOAP: Should have a select list.).',
+      ),
+    ),
+    'primary key' => array('id'),
+    'foreign keys' => array(
+      'external_data_service_id' => array('external_data_service' => 'id'),
+    ),
+  );
+  
+  $schema['external_data_method_fields'] = array(
+    'fields' => array(
+      'id' => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+        'description' => 'The primary identifier for the web service method.',
+      ),
+	  'external_data_method_id' => array(
+        'type' => 'int',
+        'length' => '32',
+        'not null' => TRUE,
+        'description' => 'The Web Method these fields are attached to.',
+      ),
+      'label' => array(
+        'type' => 'varchar',
+        'length' => '255',
+        'not null' => FALSE,
+        'description' => 'The label of the web service method field.',
+      ),
+      'name' => array(
+        'type' => 'varchar',
+        'length' => '255',
+        'not null' => TRUE,
+        'description' => 'The name of the web service method field (REST: should match a {varname}. SOAP: should be provided in selectable field).',
+      ),
+      'default_value' => array(
+        'type' => 'varchar',
+        'length' => '255',
+        'not null' => FALSE,
+        'description' => 'default value for this field, if any.',
+      ),	  
+    ),
+    'primary key' => array('id'),
+	'foreign keys' => array(
+		'external_data_service_method_id' => array('external_data_method' => 'id'),
+	),
+  );
+  return $schema;
+}

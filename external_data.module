@@ -1,0 +1,662 @@
+<?php
+//require_once(
+//require_once('FirePHPCore/fb.php');
+
+
+//firep("here's a message");
+//firep("here's a message", "optional title");
+//kpr("kpr message");
+//dfb("fire php message", FirePHP::LOG);
+//fb("real firephp message");
+// trying to add field instance settings to any field. Not working, I think because the call to this hook depends on the module of the field...
+function external_data_field_info(){
+  $info = array(
+    'external_value' => array(
+      'label' => t('External Data Value'),
+      'description' => t('External Data Value'),
+      'default_widget' => 'external_value_widget',
+      'default_formatter' => 'external_value_formatter',
+	  'instance_settings' => array(
+		'service_url' => '',
+		'format' => '',
+		'value_template' => '',
+		'track_changes' =>'',
+		'alert_recipients' => ''
+	  ),
+    ),
+  );
+ // echo __FILE__.__LINE__.print_r($info, true);
+  return $info;
+  
+}
+
+
+
+/*
+* implements hook_field_schema
+*/
+function external_data_field_schema($field){
+	// the schema needs to hold:
+	// the source value(s) we care about (or maybe just an md5 hash?)
+	// the exact url used to call that source data
+	// the EVALUATED value (after the processing is done)
+	if($field['type'] == 'external_value'){
+	  $schema['columns']['external_value'] = array(
+		'type' => 'text',
+		'not null' => FALSE, 
+	  );
+	  $schema['columns']['unverified_external_value'] = array(
+		'type' => 'text',
+		'not null' => FALSE, 
+	  );
+	  $schema['columns']['external_url_called'] = array(
+		'type' => 'varchar',
+		'length'=> '1027',
+		'not null' => FALSE, 
+	  );
+  	  $schema['columns']['initialized'] = array(
+		'type' => 'int',
+		'size'=> 'tiny',
+		'default' => 0,
+		'not null' => FALSE, 
+	  );
+  	  $schema['columns']['lock_value'] = array(
+		'type' => 'int',
+		'size'=> 'tiny',
+		'default' => 0,
+		'not null' => FALSE, 
+	  );
+	  $schema['columns']['needs_verification'] = array(
+		'type' => 'int',
+		'size'=> 'tiny',
+		'default' => 0,
+		'not null' => FALSE, 
+	  );
+
+	}
+  return $schema;
+}
+
+
+function external_data_field_instance_settings_form($field, $instance){
+	// here's where we'd define, for the field:
+	// -where the data is being pulled from (service url),
+	// -the format (xml or json) of the source data.
+	// -the xpath to the value, (also look into jsonpath, for json. And perhaps something more "friendly")
+	// -any transformations/processing on that value (what kind of language to use here?)
+	// --- we could have a simple templating language that uses xpath/jsonpath, what about logic constructs like: for, if, etc? has to work server-side as well.
+	// -if we want to 'change track' the source data; ie, let the user "approve" changed source data before it's passed on as a live value, or if we ust want to keep the value synced to the source data
+	// --- the change tracking should also track if the EVALUATED (post template) value has changed.
+	// -alerts to send out if source data has changed?
+	
+	// phase 2:
+	// -- creating other nodes based on this imported data
+	
+	if($field['type'] == 'external_value'){
+		// build the form array here.
+		
+		$widget = $instance['widget'];
+		$instance_settings = $instance['settings'];
+		$form['service_url'] = array(	
+			'#type'=> 'textfield',
+			'#title' => t('The URL of the service call'),
+			'#maxlength' => 1027,
+			'#size' => 120,
+			'#description' => t('Enter the URL of the service call, using tokens as placeholders for variables (ie, other fields on this page )'),
+			'#default_value' => !empty($instance_settings['service_url']) ? $instance_settings['service_url'] : '',
+			'#required' => false,	
+		);
+		$form['format'] = array(	
+			'#type'=> 'select',
+			'#title' => t('The format of the results (xml, json)'),
+			'#options' => array('xml'=>'XML', 'json'=>'JSON'),
+			'#description' => t('Enter the format of the results'),
+			'#default_value' => !empty($instance_settings['format']) ? $instance_settings['format'] : '',
+			'#required' => false,			
+		);	
+		$form['value_template'] = array(
+			'#type' => 'textarea',
+			'#title' => 'Result Formatter',
+			'#description' => t('how the results are to be displayed and formatted. (hm, this may be php code, or maybe some easy templating language, not sure how this will be implemented yet...'),
+			'#default_value' =>  !empty($instance_settings['value_template']) ? $instance_settings['value_template'] : '',
+			'#required' => false,
+		);
+		$form['track_changes'] = array(
+			'#type' => 'select',
+			'#title' => 'Change Tracking Options',
+			'#description' => t('What to do when the source data changes.'),
+			'#options' => array('pass_thru'=>'Accept Changes without Verification',
+								'verify'=>'Wait for Verification'),
+			'#default_value' =>  !empty($instance_settings['track_changes']) ? array($instance_settings['track_changes']) : array(),
+			'#required' => false,
+		);
+		$form['alert_recipients'] = array(
+			'#type' => 'textarea',
+			'#title' => 'Change Alert Recipients',
+			'#description' => t('Emails to alert for Change Verification. One Per Line'),
+			'#default_value' =>  !empty($instance_settings['alert_recipients']) ? $instance_settings['alert_recipients'] : '',
+			'#required' => false,
+		);
+		
+		return $form;
+		
+		
+	}
+}
+
+
+function external_data_field_is_empty($item, $field){
+	return false; // for now...
+}
+
+
+
+function external_data_field_presave($entity_type, $entity, $field, $instance, $langcode, &$items) {
+	// in case we need to alter the data after it's been sent from the form.
+	// this flattens up the array of data. maybe this would be better somewhere else...
+	if($field['field_name'] == "field_tms_object_monitor_title"){
+	//	echo "<pre>".print_r($items, true)."</pre>";
+		//exit();
+	}
+	foreach($items as $key=>&$item){
+		if(array_key_exists('external_value',$item['ed_widget'])){
+			$item['external_value'] = $item['ed_widget']['external_value'];	
+		}
+		if(array_key_exists('unverified_external_value',$item['ed_widget'])){
+			$item['unverified_external_value'] = $item['ed_widget']['unverified_external_value'];
+		}
+		if(array_key_exists('external_url_called',$item['ed_widget'])){
+			$item['external_url_called'] = $item['ed_widget']['external_url_called'];
+		}
+		if(array_key_exists('lock_value',$item['ed_widget'])){
+			$item['lock_value'] = $item['ed_widget']['lock_value'];
+		}
+		
+	}
+
+
+}
+
+function external_data_node_load($nodes, $types){
+	//echo __FILE__.__LINE__."<pre>".print_r($nodes, true)."</pre>";
+	foreach($nodes as $node){
+		// 
+	
+	}
+}
+
+
+$_ed_results_cache = array();
+// this is where we run the service call, process it, put the value into "unverified" (and also verified, if the field prferences so specify.
+function external_data_field_load($entity_type, $entities, $field, $instances, $langcode, &$items, $age){
+	global $_ed_results_cache;
+	if($_ed_results_cache == null){
+		$_ed_results_cache = array();
+	}
+	$force_pass_thru = true ;
+	if($field['field_name'] == "field_tms_object_monitor_title"){
+		//echo "<pre>".print_r($items, true)."</pre>";
+	//	exit();
+	}
+	/*
+	echo __FILE__.__LINE__."<pre>".print_r($instances, true)."</pre>";
+	echo __FILE__.__LINE__."<pre>".print_r($field, true)."</pre>";
+	echo __FILE__.__LINE__."<pre>".print_r($entities, true)."</pre>";
+	echo __FILE__.__LINE__."<pre>".print_r($items, true)."</pre>";
+	*/
+	$field_name = $field['field_name'];
+	foreach($entities as $nid=>$entity){
+		$instance = $instances[$nid];
+		$settings = $instance['settings'];
+//	echo __FILE__.__LINE__."<pre>".print_r($entity, true)."</pre>";
+		// the settings we use to generate the new value
+		$url = $settings['service_url'];
+		$value_template = $settings['value_template'];
+		$track_changes = $settings['track_changes'];
+		$alert_recipients = $settings['alert_recipients'];
+		$result_format = $settings['format'];
+		$item = null;
+		if(array_key_exists(0, $items[$nid])){
+			$item = $items[$nid][0]; // this is the field element we want to alter
+		}
+		if(is_null($item)){
+			//return;
+			$item = array();
+		}
+		// it has elements: external_value, unverified_external_value, external_url_called, lock_value, initialized
+		$lock_value = $initialized = $needs_verification = 0;
+		$old_external_value = "";
+
+		
+		if(array_key_exists('lock_value', $item)){
+			$lock_value = $item['lock_value'];
+		}
+		if(array_key_exists('initialized',$item)){
+			$initialized = $item['initialized'];
+			if(trim($initialized) == ""){
+				$initialized = 0;
+			}
+		}
+		if(array_key_exists('needs_verification',$item)){
+			$needs_verification = $item['needs_verification'];
+		}
+		if(array_key_exists('external_value',$item)){
+			$old_external_value = $item['external_value'];
+		}
+		$old_external_value = _cleanString($old_external_value);
+//		echo "<br>\nOld External Value : $old_external_value<BR>\n";
+		$item['lock_value'] = $lock_value;
+		$item['needs_verification'] = $needs_verification;
+		$item['initialized'] = $initialized;
+		$item['external_value'] = $old_external_value;
+		if(preg_match("/Parse error:/", $item['external_value'])){
+			 $item['external_value'] = '';
+		}
+		
+		$new_url = token_replace($url, array('entity'=>$entity)); 
+		
+		if(trim($new_url) == ""){
+			return;
+		}
+		
+		
+		
+		$item['external_url_called'] = $new_url; // save the actual url called.
+		
+		
+		// now do the service calling on url, (think about caching)
+		// then process using $value_template, (just a php eval for starters, but think about something more friendly)
+		// and write the new value into $item['unverified_external_value'],
+		// and if $track_changes = 'pass_thru', then also write to external_value
+		// and if the new value is different, and there are people to alert, then send the alert.
+		echo "<!-- ".__FILE__.__LINE__." : url is $new_url -->\n";
+//		$results = file_get_contents($new_url);
+		
+		if(array_key_exists($new_url, $_ed_results_cache)){
+			$results = $_ed_results_cache[$new_url];		
+		}else{
+			$results = file_get_contents($new_url);
+			
+			if(strlen(trim($results)) == 0){
+				return;
+			}
+			
+			$_ed_results_cache[$new_url] = $results;
+		}
+		
+		$new_text = external_data_process_results($results, $result_format, $value_template);
+	//	echo "<!-- ".__FILE__.__LINE__." : new_text is $new_text -->\n";
+		$new_text = _cleanString($new_text);
+		if(preg_match("/Parse error:/", $new_text)){
+			 $new_text = '';
+		}
+		
+		$item['unverified_external_value']= $new_text;
+		
+
+		if($force_pass_thru == true && trim($new_text) != ""  and $lock_value != "1"){			
+		//echo "<BR>FORCING $new_text<BR>";
+			$item['external_value'] = $new_text;
+		}else{
+		//	echo "<BR>Not forcing $new_text<BR>";
+		}
+/*		
+		if($field['field_name'] == "field_tms_object_monitor_title"){
+			echo "lock value $lock_value<BR>";
+			echo ($lock_value != "1" ? "not 1 " : " Is 1 ");
+			echo "<BR><pre>".print_r($item, true)."</pre>";
+		}		
+	*/	
+		if(($track_changes == 'pass_thru' and $lock_value != "1") or ($lock_value != "1" && $initialized == 0)) {
+		echo "<!-- ".__FILE__.__LINE__." : tc $track_changes : lv $lock_value : i $initialized -->\n";
+			$item['external_value'] = $new_text;
+			$item['initialized'] = 1;
+		}else if ($new_text != $old_external_value){
+			$item['needs_verification'] = 1;
+		}else if ($new_text == $old_external_value){
+			$item['needs_verification'] = 0;
+		}
+		if($item['needs_verification'] != 1){
+			$item['needs_verification'] = 0;
+		}
+		
+		
+		// sometimes I want to force blank data to be updated, in emergency situations
+		if(strlen(trim($item['external_value'])) == 0 && strlen(trim($new_text)) > 0){
+			$item['external_value'] = $new_text;
+		}
+
+	if($field['field_name'] == "field_tms_object_monitor_title"){
+//		exit();
+		}
+		//	echo __FILE__.__LINE__."<pre>".print_r($entity, true)."</pre>";
+		// do we need to re-save it here too? Probably, in case this stuff is happening in a background process.
+		$items[$nid][0] = $item;
+		$new_field = $entity->$field_name;
+		$new_field['und'][0] = $item;
+		$entity->$field_name = $new_field;
+		// re-saving
+		
+		echo "<!-- ".__FILE__.__LINE__." : about to save ".print_r($item, true)." -->\n";
+		field_attach_update($entity_type, $entity);
+		//	echo __FILE__.__LINE__."<pre>".print_r($entity, true)."</pre>";
+
+	}
+}
+
+function _cleanString($str){
+
+	while(preg_match("/^[-,]+/", $str) or preg_match("/[-,]+$/", $str) or preg_match("/^\s+/", $str) or preg_match("/\s+$/", $str)){
+		$str = preg_replace("/^[-,]+/","", $str);
+		$str  = trim($str);
+//		$str = preg_replace("/^\s+/","", $str);
+//		$str = preg_replace("/\s+$/","", $str);
+		$str = preg_replace("/[-,]+$/","", $str);
+	}
+	return $str;
+}
+
+function external_data_process_results($results, $result_format, $value_template){
+	
+	$new_text = "";
+	if(strtolower($result_format) == "xml"){
+		// gonna turn this simple syntax into php code we can execute.
+		// find all loop expressions in 
+		$exdataxmldoc = new SimpleXMLElement($results);
+		$exdataelement = $exdataxmldoc;
+		$varinc = $ifinc = 0;
+		$orig_template = $value_template;
+		$value_template = preg_replace('/\{\{loop:([^\}]+)\}\}/','<?php $inloop = false; $xpathresults = $exdataxmldoc->xpath("$1"); foreach($xpathresults as $exdataelement){ $inloop=true;?>', $value_template);
+		$value_template = preg_replace('/\{\{if:([^\}]+)\}\}/','<?php 
+		$exdatathenode = $inloop ? $exdataelement : $exdataxmldoc ; 
+		$varinc++; 
+		$ifvar = "xpathresults$varinc"; 
+		$latestPath = "$1"; 
+		$$ifvar = $exdatathenode->xpath("$1"); 
+		$ifval = $$ifvar;
+		if(count($ifval) > 0 and array_key_exists(0, $ifval) and trim($ifval[0]) != ""){  ?>', $value_template);
+		$value_template = str_replace('{{/loop}}', '<?php } ?>' , $value_template);		
+		$value_template = str_replace('{{/if}}', '<?php } ?>' , $value_template);		
+		$value_template = str_replace('{{endloop}}', '<?php } ?>' , $value_template);		
+		$value_template = str_replace('{{endif}}', '<?php }  ?>' , $value_template);		
+		$value_template = preg_replace('/\{\{code:([^\}]+)\}\}/','array_shift($exdataelement->xpath("$1"))', $value_template);
+		$value_template = preg_replace('/\{\{([^\}]+)\}\}/','<?php 
+		$exdatathenode = $inloop ? $exdataelement : $exdataxmldoc ; 
+		$result = $exdatathenode->xpath("$1"); 
+		echo $result[0]; 
+		?>', $value_template);
+		
+		echo "\n<!-- ".__FILE__.__LINE__."\ntemplate is $orig_template\n code is : \n$value_template\n -->\n";
+		//t[!contains('Author,Dedicated to,Poet',Role)]
+		ob_start();
+		$result = eval("\$inloop = false; ?> ". $value_template ."<?php ");
+		
+		$new_text = ob_get_contents();
+		ob_end_clean();
+		if($result === false && ($error = error_get_last())){
+			echo "\n<!-- CODE ERROR : ".$error['message'] ." -->\n";
+		}
+
+	}
+	
+	return $new_text;
+
+}
+
+
+
+
+/*
+* extends hook_field_widget_info
+*/
+function external_data_field_widget_info(){
+	// this defines the info for the fields in the "edit" widget on the individual pages
+	// (ie, not on the instance settings, where you configure the field)
+  $widget = array(
+    'external_value_widget' => array(
+      'label' => t('Externally Sourced Value'),
+      'description' => t('Allow the user to modify the externally sourced data'),
+      'field types' => array('external_value'),
+      'behaviors' => array(
+        'multiple values' => FIELD_BEHAVIOR_DEFAULT,
+        'default value' => FIELD_BEHAVIOR_DEFAULT,
+      ),
+    ),
+  );
+  return $widget;	
+}
+
+function external_data_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element){
+	// creating the form on each page that lets the user see the externally sourced data, modify it if necessary, or just copy it to 'live' should have a clear indication if source data has changed or not.
+	$base = $element;
+	$container = array();
+	//echo __FILE__.__LINE__."<BR><BR><pre>".print_r($form, true)."</pre>";	
+	if(array_key_exists('#node_edit_form', $form) && $form['#node_edit_form'] == 1 && $instance['widget']['type'] == 'external_value_widget'){
+	//	echo __FILE__.__LINE__."<pre>".print_r($field, true)."</pre>";
+		$container = array('ed_widget' => 
+		  array(
+			'#prefix' =>'<div id="external_data_div">',
+			'#suffix' => '</div>',
+			'#title' => t('External Data Value: '. $instance['label']),
+			'#type' => 'fieldset',
+			'#attributes' => array('class' => array('external-data-widget')),        
+			'#attached' => array(
+			/*
+							  'js' => array(
+								  drupal_get_path('module','met_object_field'). '/met_object_field.js' => 
+									  array('type'=>'file'),
+							  ),
+							  */
+						),        
+		  ),
+		);		
+		// we need the ability to ask "this is the unverified value, do you accept it?" and if the user says "yes", then the value is copied over to the external_value field.
+		$container['ed_widget']['external_value'] = array(
+			'#type' => 'textarea',
+			'#disabled' =>  FALSE,
+			'#title' => t('External Value:' ),
+			'#default_value' => isset($items[$delta]['external_value']) ? $items[$delta]['external_value'] : "",		
+		) + $base;
+		
+		$container['ed_widget']['lock_value'] = array(
+			'#type' => 'checkbox',
+			'#disabled' =>  FALSE,
+			'#title' => t('Lock Current Value:' ),
+			'#default_value' => isset($items[$delta]['lock_value']) && $items[$delta]['lock_value'] === "1"  ? "1" : "",		
+//			'#attributes' => array('checked' => isset($items[$delta]['lock_value']) && $items[$delta]['lock_value'] === "1"  ? "checked" : ""),
+		) + $base;		
+		
+		$field_name = $field['field_name'];
+		$external_url_id = 'edit-'.str_replace("_","-", $field_name)."-und-".$delta."-ed-widget-external-url_called";
+		$verified_id = 'edit-'.str_replace("_","-", $field_name)."-und-".$delta."-ed-widget-external-value";
+		$unverified_id = 'edit-'.str_replace("_","-", $field_name)."-und-".$delta."-ed-widget-unverified-external-value";
+		$verified_div_class = 'form-item-'.str_replace("_","-", $field_name).'-und-'.$delta.'-ed-widget-external-value';
+		$unverified_div_class = $unverified_id; //'form-item-'.str_replace("_","-", $field_name).'-und-'.$delta.'-ed-widget-unverified-external-value';
+		
+		$ext_url = "";
+		$unv_ext_val = "";
+		$needs_verification = "";
+		if(array_key_exists($delta, $items)){
+			$ext_url = $items[$delta]['external_url_called'];
+			$unv_ext_val = $items[$delta]['unverified_external_value'];
+			$needs_verification = $items[$delta]['needs_verification'];
+		}
+		
+		$container['ed_widget']['accept_unverified'] = array(
+			'#markup' => "<span onclick='jQuery(\"#".$external_url_id."\").toggle();'>Show URL</span> | ". 
+						"<span onclick='jQuery(\"#show".$unverified_id."\").toggle();'><font color='".($needs_verification == 1 ? "red" : "green" )."'>Show Unverified Value</font></span> | ".
+						"<span onclick='jQuery(\"#".$verified_id."\").val(jQuery(\"#".$unverified_id."\").html())'>Accept Unverified Value</span>  ".
+						"<span id='show".$unverified_id."' style='display:none;'><BR><B>Unverified Value:</b><BR><span id='".$unverified_id."'>".$unv_ext_val."</span></span> ".
+						"<span id='".$external_url_id."'  style='display:none;'><BR><B>URL:</b> <a href='".$ext_url."' target='_blank'>". $ext_url."</a></span>",
+		) + $base;
+		/*
+		$container['ed_widget']['unverified_external_value'] = array(
+			'#type' => 'textarea',
+			'#disabled' =>  TRUE,
+			'#hidden' => TRUE,
+			'#title' => t('Unverified External Value'),
+			'#default_value' => isset($items[$delta]['unverified_external_value']) ? $items[$delta]['unverified_external_value'] : "soemthing unverified_external_value",	
+		) + $base;
+		$container['ed_widget']['external_url_called'] = array(
+			'#type' => 'textfield',
+			'#disabled' =>  TRUE,
+			'#title' => t('URL Called'),
+			'#default_value' => isset($items[$delta]['external_url_called']) ? $items[$delta]['external_url_called'] : "soemthing external_url_called",			
+		) + $base;
+		*/
+	}
+	return $container;
+}
+
+
+
+/*
+* implements hook_field_formatter_info
+*/
+function external_data_field_formatter_info(){
+	// defines how the data is displayed in non-edit mode
+	// or rather, what display modes are available for this type
+	// this is what you see when you go to "manage display" in the drupal admin
+	$info = array(
+		'external_value_formatter' => array(
+		  'label' => t('Default View'),
+		  'field types' => array('external_value'),
+		),
+	);
+	return $info; 
+}
+
+
+
+/*
+* implements hook_field_formatter_view
+*/
+function external_data_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+	// implements the display of the data in "view" mode.
+   // echo __FILE__.__LINE__."<pre>".print_r($field, true)."</pre>";
+	$field_name = $field['field_name'];
+    $element = array();
+    switch($display['type']){
+        case 'external_value_formatter':
+        // make render arrays here...
+		foreach($items as $delta=>$item){
+			if(!array_key_exists("unverified_external_value", $item)){
+				$item['unverified_external_value'] = "";
+			}
+			if(!array_key_exists("external_value", $item)){
+				$item['external_value'] = "";
+			}
+		
+		    $markup = "(<span onclick=\"jQuery('#url_called_".$field_name."_$delta').toggle();\">see url</span>|";
+			$markup .= "<span onclick=\"jQuery('#unverifed_data_".$field_name."_$delta').toggle();\">see unverified value</span>)";
+			$markup .= "<div id='url_called_".$field_name."_$delta' style='display: none;'><a href='".$item['external_url_called']."' target='_blank'>".$item['external_url_called']."</a></div>";
+			$markup .= "<div id='unverifed_data_".$field_name."_$delta' style='display: none;'><B>Unverified Value:</b>".$item['unverified_external_value']."</div><BR>";
+		    if($item['external_value'] != $item['unverified_external_value']){
+			  $markup .= "<font color='red'>Current value different from latest retrieved value. Click Edit to verify.</font><BR>";	
+		    }
+		    $markup .= "<B>Value:</b> ".$item['external_value']."<BR><hr>";
+
+		    $element[$delta] = array('#markup'=>$markup);
+	//        $element[$delta] = theme('met_object_field_formatter_default', $item);
+	    }
+        break;
+    }
+    return $element; 
+}
+
+
+
+
+
+
+/*
+Sample code:
+$url = 'http://ssemtestdb00:8765/services/MetDataService/MetData.asmx/getTmsObjectDataForObjectNumber?objectNumber=2001.153';
+external_data_load_rest($url, 'objectdata', 'xml', '');
+$value = external_data_get_value('objectdata', '//Medium');
+$entity_field[0]['value'] = $value;
+*/
+
+// utility functions
+$_external_data_namespaces = array();
+$_external_data_loaded_docs = array();
+function external_data_load_rest($url, $name, $format, $namespace_string){
+  global $_external_data_loaded_docs, $_external_data_namespaces;
+  $result = Http::get( $url );
+  if(strtolower($format) == "xml"){
+    $doc = new DOMDocument(); // don undeen
+	  $doc->loadXML($result); //don undeen
+    $_external_data_loaded_docs[$name] = $doc;    
+  }
+  $_external_data_namespaces[$name] = $namespace_string;
+  return $result;
+}
+
+function external_data_eval_xpath($name, $expr){
+  global $_external_data_loaded_docs, $_external_data_namespaces;
+  $doc = $_external_data_loaded_docs[$name];
+  if($doc == null){
+    return array();
+  }
+  $xpath = new DOMXPath($doc);
+  _external_data_setup_xpath_namespaces($xpath, $_external_data_namespaces[$name]);
+  $elements = $xpath->query($expr);
+  if(is_null($elements)){
+    return array();
+  }
+  return $elements;
+}
+
+function external_data_get_value($name, $expr){
+  global $_external_data_loaded_docs, $_external_data_namespaces;
+  $doc = $_external_data_loaded_docs[$name];
+  if($doc == null){
+    return null;
+  }
+  $xpath = new DOMXPath($doc);
+  _external_data_setup_xpath_namespaces($xpath, $_external_data_namespaces[$name]);
+  $elements = $xpath->query($expr);
+  if(is_null($elements)){
+    return null;
+  }
+  $value = $elements->item(0)->nodeValue; 
+  return $value;
+}
+
+function external_data_num_results($name, $expr){
+  global $_external_data_loaded_docs, $_external_data_namespaces;
+  $doc = $_external_data_loaded_docs[$name];
+  if($doc == null){
+    return 0;
+  }
+  $xpath = new DOMXPath($doc);
+  _external_data_setup_xpath_namespaces($xpath, $_external_data_namespaces[$name]);
+  $elements = $xpath->query($expr);
+  if(is_null($elements)){
+    return 0;
+  }
+  return $elements->length;
+}
+
+function _external_data_setup_xpath_namespaces(&$xpathObj, $namespaceString){
+  // while we're here, let's register php functoins, so we can use them in xpath: http://us.php.net/manual/en/domxpath.registerphpfunctions.php
+  // Register the php: namespace (required)
+  $xpathObj->registerNamespace("php", "http://php.net/xpath");
+  // Register PHP functions (no restrictions)
+  // BOOO!! this is only supported in php >= 5.3.0 . time to upgrade!
+  //	  $xpathObj->registerPHPFunctions();
+
+  if(strlen($namespaceString) == 0){
+    return;
+  }
+
+  $namespaces = explode(";", $namespaceString);
+  foreach($namespaces as $namespace){
+    $split = explode(":", $namespace);
+    $prefix = array_shift($split);
+    $url = implode(":", $split);
+    $xpathObj->registerNamespace($prefix, $url);
+  }
+  return ;
+
+}

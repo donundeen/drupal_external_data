@@ -1,0 +1,356 @@
+<?php
+// see here for api of hooks: http://api.drupal.org/api/drupal/includes--module.inc/group/hooks/7
+
+// most of the code here came from this example:
+// http://www.istos.it/blog/drupal-entities/drupal-entities-part-3-programming-hello-drupal-entity
+
+
+// registering information about the entity. Binding with the storage schema defined in external_data.install
+// implements hook_entity_info
+function external_data_service_entity_info(){
+	$external_data_info['external_data_service'] = array(
+		'label' => t('External Data Service'),
+		'controller class' => 'ExternalDataServiceController',
+		'base table' => 'external_data_service',
+		'uri callback' => 'external_data_service_uri',
+		'fieldable'=>TRUE,
+		'entity keys' => array(
+			'id'=>'id',
+		),
+		'static cache' => TRUE,
+		'bundles' => array(
+			'external_data_service' => array(
+				'label' => 'External Data Service',
+				'admin' => array(
+					'path' => 'admin/structure/external_data_service/manage',
+					'access arguments' => array('administer external data services'),
+				),
+			)
+		),
+		'view modes' => array(
+			'full' => array(
+				'label' => t('External Data Service lbl'),
+				'custom settings'=>FALSE,
+			)
+		)
+	);
+	// Search integration is provided by node.module, so search-related
+	// view modes for nodes are defined here and not in search.module.
+	if (module_exists('search')) {
+		$external_data_info['external_data_service']['view modes'] += array(
+			'search_index' => array(
+				'label' => t('Search index'), 
+				'custom settings' => FALSE,
+			), 
+			'search_result' => array(
+				'label' => t('Search result'), 
+				'custom settings' => FALSE,
+			),
+		);
+	}else{
+		echo  "no search module!"; exit();
+	}
+	
+	
+	
+	return $external_data_info;
+}
+
+
+// hook_field_info?
+// hook_field_schema ?
+
+// callback function from external_data_service_entity_info
+function external_data_service_uri($external_data_service){
+	return array(
+		'path' => 'external_data_service/'.$external_data_service->id,		
+	);
+}
+
+
+// implements hook_load
+// called at urls like /external_data_service/3 (3 is the db id of a ed service row)
+function external_data_service_load($id = NULL, $reset = FALSE){
+  $ids = (isset ($id) ? array($id) : array());
+  $external_data_service = external_data_service_load_multiple($ids, $reset);
+  
+  return $external_data_service ? reset ($external_data_service) : FALSE;
+}
+
+// called from external_data_service_load
+function external_data_service_load_multiple($ids = array(), $conditions = array(), $reset = FALSE){
+  return entity_load('external_data_service', $ids, $conditions, $reset);
+}
+
+
+// implements hook_menu
+function external_data_service_menu(){
+  $items['admin/structure/external_data_service/manage'] = array(
+    'title' => 'External Data Service Admin',
+    'description' => 'Manage External Data Services',
+    'page callback' => 'external_data_service_info',
+    'access arguments' => array('administer external data services'),
+  );
+  $items['external_data_service/%external_data_service'] = array(
+    'title callback' => 'external_data_service_page_title',
+    'title arguments' => array(1),
+    'page callback' => 'external_data_service_page_view',
+	'description' => 'View External Data Service',
+    'page arguments' => array(1),
+    'access arguments' => array('view external data services'),
+    'type' => MENU_CALLBACK,
+  );
+ 
+  $items['node/add/external_data_service']  = array(
+	'title' => 'Add External Data Service',
+	'page callback' => 'external_data_service_add',
+	'access arguments' => array('create external data services')
+  );
+  return $items;
+}
+
+
+
+// implements hook_permission
+function external_data_service_permission(){
+	return array(
+		'administer external data services' => array(
+			'title' => t('Administer External Data Services'),
+			'restrict access' => TRUE,
+		),
+		'create external data services' => array(
+			'title' => t('Create External Data Services'),
+			'restrict access' => TRUE,
+		),
+		'view external data services' => array(
+			'title' => t('View External Data Services'),
+		)	
+	);
+}
+
+
+// callback from external_data_service_menu
+function external_data_service_page_title($external_data_service){
+	return $external_data_service->id;
+
+}
+
+
+
+// callback from external_data_service_menu
+function external_data_service_info(){
+	return ('Welcome to the Administration page for External Data Services');
+	//return  array("one", "two");
+}
+
+// callback from external_data_service_menu
+function external_data_service_page_view($external_data_service, $view_mode = 'full'){
+	$external_data_service->content = array();
+	// Build Fields Content
+	field_attach_prepare_view('external_data_service', array($external_data_service->id => $external_data_service), $view_mode);
+//echo "<pre>".print_r($external_data_service, true)."</pre>";
+	entity_prepare_view('external_data_service', array($external_data_service->id => $external_data_service));
+//echo "<pre>".print_r($external_data_service, true)."</pre>";
+	$external_data_service->content += field_attach_view('external_data_service', $external_data_service, $view_mode);
+	
+	echo __LINE__."<pre>".print_r($external_data_service, true)."</pre>";
+	
+	return $external_data_service->content;		
+}
+
+
+function external_data_service_extra_fields(){
+	$return = array();
+	$return['external_data_service']['external_data_service'] = array(
+		'form' =>array(
+			'service_type' => array(
+				'label'=>t('service_type'),
+				'description' => t('the service_type'),
+			),		
+			'url' => array(
+				'label'=>t('Url'),
+				'description' => t('the url'),
+			),		
+			'username' => array(
+				'label'=>t('username'),
+				'description' => t('the username'),
+			),		
+			'password' => array(
+				'label'=>t('password'),
+				'description' => t('the password'),
+			),		
+		),
+		'display' => array(
+			'service_type' => array(
+				'label'=>t('service_type'),
+				'description' => t('the service_type'),
+			),		
+			'url' => array(
+				'label'=>t('Url'),
+				'description' => t('the url'),
+			),		
+			'username' => array(
+				'label'=>t('username'),
+				'description' => t('the username'),
+			),		
+			'password' => array(
+				'label'=>t('password'),
+				'description' => t('the password'),
+			),		
+		),				
+	);
+	echo __LINE__."returning <pre>".print_r($return, true)."</pre>";exit();
+	
+	return $return;
+}
+
+
+function external_data_service_field_info(){
+
+	$return = array(
+		'service_type' => array(
+			'label' => t('service_type'), 
+			'description' => t('This field stores service_type text in the database.'), 
+			'settings' => array('max_length' => 255), 
+			'instance_settings' => array('text_processing' => 0), 
+			'default_widget' => 'text_textfield', 
+			'default_formatter' => 'text_default',
+		),
+		'url' => array(
+			'label' => t('url'), 
+			'description' => t('This field stores url text in the database.'), 
+			'settings' => array('max_length' => 255), 
+			'instance_settings' => array('text_processing' => 0), 
+			'default_widget' => 'text_textfield', 
+			'default_formatter' => 'text_default',
+		),
+		'username' => array(
+			'label' => t('username'), 
+			'description' => t('This field stores username text in the database.'), 
+			'settings' => array('max_length' => 255), 
+			'instance_settings' => array('text_processing' => 0), 
+			'default_widget' => 'text_textfield', 
+			'default_formatter' => 'text_default',
+		),
+		'password' => array(
+			'label' => t('password'), 
+			'description' => t('This field stores password text in the database.'), 
+			'settings' => array('max_length' => 255), 
+			'instance_settings' => array('text_processing' => 0), 
+			'default_widget' => 'text_textfield', 
+			'default_formatter' => 'text_default',
+		),
+	
+	
+	);
+	//echo __LINE__."returning <pre>".print_r($return, true)."</pre>";exit();
+	
+	
+	return $return;
+
+}
+
+
+// callback from external_data_service_menu
+function external_data_service_add(){
+	$external_data_service = (object) array (
+		'id' => '',
+		'type' => 'external_data_service',
+		'url' => '',
+		'name' => '',
+		'label' => '',
+		'username' => '',
+		'password' => 'enter password',
+		'service_type' => '',
+	);
+	
+	return drupal_get_form('external_data_service_add_form', $external_data_service);
+	
+}
+
+
+
+// this part is what adds to the form.
+// callback from external_data_service_add
+function external_data_service_add_form($form, &$form_state, $external_data_service){
+	$form['service_type'] = array(
+		'#type' => 'select',
+		'#options' => array('SOAP'=>'SOAP', 'REST'=>'REST'),
+		'#title' => t('Service Type'),
+		'#required' => TRUE,
+	);	
+	$form['url'] = array(
+		'#type' => 'textfield',
+		'#title' => t('URL'),
+		'#required' => TRUE,
+	);
+	$form['name'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Name'),
+		'#required' => TRUE,
+	);
+	$form['label'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Label'),
+		'#required' => TRUE,
+	);	
+	$form['username'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Auth Username'),
+		'#required' => FALSE,
+	);
+	$form['password'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Auth Password'),
+		'#required' => FALSE,
+	);	
+	
+	$form['submit'] = array(
+		'#type' => 'submit',
+		'#value' => t('Save'),		
+	);
+	
+	field_attach_form('external_data_service', $external_data_service, $form, $form_state);
+	
+	return $form;
+}
+
+// part of callback from  external_data_service_add, which requires a function named $callback_function."_validate"
+function external_data_service_add_form_validate($form, &$form_state) {
+  $external_data_service_submission = (object) $form_state['values'];
+  field_attach_form_validate('external_data_service', $external_data_service_submission, $form, $form_state);
+}
+
+// part of callback from  external_data_service_add, which requires a function named $callback_function."_submit"
+function external_data_service_add_form_submit($form, &$form_state) {
+  $external_data_service_submission = (object) $form_state['values'];
+  field_attach_submit('external_data_service', $external_data_service_submission, $form, $form_state);
+  $external_data_service = external_data_service_save($external_data_service_submission);
+  $form_state['redirect'] = "external_data_service/$external_data_service->id";
+}
+
+// called from external_data_service_add_form_submit
+function external_data_service_save(&$external_data_service) {
+	// calls method on controller class
+  return entity_get_controller('external_data_service')->save($external_data_service);
+}
+
+
+
+
+// required, because we specified
+// 'controller class' => 'ExternalDataServiceController',
+// in 
+// function external_data_service_entity_info(){
+class ExternalDataServiceController extends DrupalDefaultEntityController {
+	public function save($external_data_service) {
+		drupal_write_record('external_data_service', $external_data_service);
+		field_attach_insert('external_data_service', $external_data_service);
+		module_invoke_all('entity_insert', 'external_data_service', $external_data_service);
+		return $external_data_service;
+	  }
+
+
+};
+
+?>

@@ -1,0 +1,11 @@
+; $Id:Exp $
+name = "External Data"
+description = "A module for dealing with data from external webservices, and anything else I think of."
+core = "7.x"
+
+datestamp = "1296601519"
+package = "External Data"
+
+files[] = external_data.module
+files[] = HttpFunctions.php
+

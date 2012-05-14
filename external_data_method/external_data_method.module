@@ -1,0 +1,379 @@
+<?php
+// see here for api of hooks: http://api.drupal.org/api/drupal/includes--module.inc/group/hooks/7
+
+// most of the code here came from this example:
+// http://www.istos.it/blog/drupal-entities/drupal-entities-part-3-programming-hello-drupal-entity
+
+
+// registering information about the entity. Binding with the storage schema defined in external_data.install
+// implements hook_entity_info
+function external_data_method_entity_info(){
+	$external_data_info['external_data_method'] = array(
+		'label' => t('External Data Method'),
+		'controller class' => 'ExternalDataMethodController',
+		'base table' => 'external_data_method',
+		'uri callback' => 'external_data_method_uri',
+		'fieldable'=>TRUE,
+		'entity keys' => array(
+			'id'=>'id',
+		),
+		'static cache' => TRUE,
+		'bundles' => array(
+			'external_data_method' => array(
+				'label' => 'External Data Method',
+				'admin' => array(
+					'path' => 'admin/structure/external_data_method/manage',
+					'access arguments' => array('administer external data Service Methods'),
+				),
+			)
+		),
+		'view modes' => array(
+			'full' => array(
+				'label' => t('External Data Method lbl'),
+				'custom settings'=>FALSE,
+			)
+		)
+	);
+	return $external_data_info;
+}
+
+
+// callback function from external_data_method_entity_info
+function external_data_method_uri($external_data_method){
+	return array(
+		'path' => 'external_data_method/'.$external_data_method->id,		
+	);
+}
+
+
+// implements hook_load
+function external_data_method_load($id = NULL, $reset = FALSE){
+  $ids = (isset ($id) ? array($id) : array());
+  $external_data_method = external_data_method_load_multiple($ids, $reset);
+  return $external_data_method ? reset ($external_data_method) : FALSE;
+}
+
+// called from external_data_method_load
+function external_data_method_load_multiple($ids = array(), $conditions = array(), $reset = FALSE){
+  return entity_load('external_data_method', $ids, $conditions, $reset);
+}
+
+
+// implements hook_menu
+function external_data_method_menu(){
+  $items['admin/structure/external_data_method/manage'] = array(
+    'title' => 'External Data Method Admin',
+    'description' => 'Manage External Data Methods',
+    'page callback' => 'external_data_method_info',
+    'access arguments' => array('administer external data methods'),
+  );
+  $items['external_data_method/%external_data_method'] = array(
+    'title callback' => 'external_data_method_page_title',
+    'title arguments' => array(1),
+    'page callback' => 'external_data_method_page_view',
+    'page arguments' => array(1),
+    'access arguments' => array('view external data methods'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['node/add/external_data_method']  = array(
+	'title' => 'Add External Data Method',
+	'page callback' => 'external_data_method_add',
+	'access arguments' => array('create external data methods')
+  );
+  return $items;
+}
+
+
+
+// implements hook_permission
+function external_data_method_permission(){
+	return array(
+		'administer external data methods' => array(
+			'title' => t('Administer External Data methods'),
+			'restrict access' => TRUE,
+		),
+		'create external data methods' => array(
+			'title' => t('Create External Data methods'),
+			'restrict access' => TRUE,
+		),
+		'view external data methods' => array(
+			'title' => t('View External Data methods'),
+		)	
+	);
+}
+
+
+// callback from external_data_method_menu
+function external_data_method_page_title($external_data_method){
+	return $external_data_method->id;
+
+}
+
+
+
+// callback from external_data_method_menu
+function external_data_method_info(){
+	return ('Welcome to the Administration page for External Data methods');
+
+}
+
+// callback from external_data_method_menu
+function external_data_method_page_view($external_data_method, $view_mode = 'full'){
+	$external_data_method->content = array();
+	
+  $msg = "";
+	// Build Fields Content
+  $msg .= "content: <pre>" . print_r($external_data_method, true)."</pre>";
+
+	field_attach_prepare_view('external_data_method', array($external_data_method->id => $external_data_method), $view_mode);
+  $msg .= "content: <pre>" . print_r($external_data_method, true)."</pre>";
+	entity_prepare_view('external_data_method', array($external_data_method->id => $external_data_method));
+  $msg .= "content: <pre>" . print_r($external_data_method, true)."</pre>";
+	$external_data_method->content += field_attach_view('external_data_method', $external_data_method, $view_mode);
+  $msg .= "content: <pre>" . print_r($external_data_method, true)."</pre>";
+
+ // $external_data_method->content['#theme'] = "node";
+  //$external_data_method->content['#node'] = $external_data_method;
+  $msg .= "content: <pre>" . print_r($external_data_method, true)."</pre>";
+  
+ // return $msg;
+  
+	return $external_data_method->content;		
+}
+
+
+function external_data_method_extra_fields(){
+	$return = array();
+	$return['external_data_method']['external_data_method'] = array(
+		'form' =>array(
+			'url' => array(
+				'label'=>t('Url'),
+				'description' => t('the url'),
+			),		
+		),	
+	);
+	return $return;
+}
+
+
+
+// callback from external_data_method_menu
+function external_data_method_add(){
+	$external_data_method = (object) array (
+		'id' => '',
+		'type' => 'external_data_method',		
+		'external_data_service_id' => '',		
+		'name' => '',
+		'label' => '',
+	);
+	
+	return drupal_get_form('external_data_method_add_form', $external_data_method);
+	
+}
+
+
+
+// this part is what adds to the form.
+// callback from external_data_method_add
+function external_data_method_add_form($form, &$form_state, $external_data_method){
+	
+	// get list of services to populate this array
+	$services = entity_load('external_data_service', false, array(), false);
+	$service_options = array();
+	foreach($services as $service){
+		$option_text = $service->label;
+		$service_options[$service->id] = $option_text;
+	}
+	
+	$form['external_data_service_id'] = array(
+		'#type' => 'select',
+		'#options' => $service_options,
+		'#title' => t('Web Service'),
+		'#required' => TRUE,
+		'#ajax' => array(
+			'callback' => 'external_data_service_selected_callback',
+			'wrapper' => 'method_select_div',
+			'method' => 'replace',
+			'speed' => 'fast',
+			'effect' => 'fade'
+		),
+	);	
+	
+	
+	
+	// this needs to turn into a dropdown, once the service itself is selected,
+	// OR, if it's a REST call, we want a text entry.
+	$form['name'] = array(
+		'#prefix' => '<div id="method_select_div">',
+		'#suffix' => '</div>',
+		'#title' => t('Method Name'),
+		'#required' => TRUE,
+		'#ajax' => array(
+				'callback'=>'external_data_method_name_changed_callback',
+				'wrapper' => 'method_field_select_div',
+				'method'=>'replace',
+				'speed' => 'fast',				
+				'effect'=>'fade'
+		),		
+	);
+	$select_method_options = array();
+	if(empty($form_state['values']['external_data_service_id'])){
+		$select_method_options = array("0"=>"First Select A Service");
+		$form['name']['#type'] = 'select';
+		$form['name']['#options'] = $select_method_options;
+	}else{
+		// get teh service:
+		$ed_services = entity_load('external_data_service', array($form_state['values']['external_data_service_id']), array(), false);
+		$ed_service = $ed_services[$form_state['values']['external_data_service_id']];
+		// if it's SOAP, then:
+		// get a list of METHODS for the supplied service		
+		if($ed_service->service_type == "SOAP"){
+			// here we have to implement a SOAP wrapper, of some sort
+			$select_method_options = array("1"=>$ed_service->name, "2"=> "method 2");
+			$form['name']['#type'] = 'select';
+			$form['name']['#options'] = $select_method_options;			
+		}else{
+			// if it's a REST call, we just want user to enter a string, so turn it unto a text box
+			// just create a text box.
+			$form['name']['#type'] = 'textfield';
+			$form['name']['#title'] = t('Enter portion of URL that comes AFTER the service URL. Use {fieldname} for where fields should go.');
+			// when text changes, we update the "fields" portion:
+
+			
+		}
+	}
+	
+	
+	
+
+	// fields:	
+	$form['fields'] = array(
+		'#prefix' =>'<div id="method_field_select_div">',
+		'#suffix' => '</div>',
+		'#title' => t('Fields'),
+		'#type' => 'fieldset',
+	);
+	if(!empty($form_state['values']['name'])){
+		// if it's rest, we find the {fieldnames}
+		//if($ed_service->service_type == 'REST'){
+			$matches = array();
+			if(preg_match_all("/{([^}]+)}/", $form_state['values']['name'], $matches)){
+				$fieldnames = $matches[1];
+				if(!is_array($fieldnames)){
+					$fieldnames = array("one", $form_state['values']['name']);
+				}
+				//$fieldnames = array("field1", "field2");
+				foreach($fieldnames as $fieldname){
+					$form['fields']["External_Data_Field_".$fieldname] = array(
+						'#type'=>'textfield',
+						'#title'=> "Field $fieldname",			
+					);	
+				}
+			}
+		//}
+		// if it's soap, we consult the wsdl
+		if($ed_service->service_type == 'SOAP'){
+			// question: how to deal with complex soap parameters?
+		
+		}
+	}
+	// also, have to populate any values that are set (if this is an update)
+	
+	
+	
+	$form['label'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Label'),
+		'#required' => FALSE,
+	);	
+	$form['submit'] = array(
+		'#type' => 'submit',
+		'#value' => t('Save'),		
+	);
+	
+	field_attach_form('external_data_method', $external_data_method, $form, $form_state);
+	
+	return $form;
+}
+
+// the ajax-triggered callback function:
+function external_data_service_selected_callback($form, $form_state){
+	return $form['name'];
+}
+function external_data_method_name_changed_callback($form, $form_state){
+	return $form['fields'];
+}
+
+// part of callback from  external_data_method_add, which requires a function named $callback_function."_validate"
+function external_data_method_add_form_validate($form, &$form_state) {
+  $external_data_method_submission = (object) $form_state['values'];
+  field_attach_form_validate('external_data_method', $external_data_method_submission, $form, $form_state);
+}
+
+// part of callback from  external_data_method_add, which requires a function named $callback_function."_submit"
+function external_data_method_add_form_submit($form, &$form_state) {
+  $external_data_method_submission = (object) $form_state['values'];
+  field_attach_submit('external_data_method', $external_data_method_submission, $form, $form_state);
+  $external_data_method = external_data_method_save($external_data_method_submission);
+  $form_state['redirect'] = "external_data_method/$external_data_method->id";
+}
+
+// called from external_data_method_add_form_submit
+function external_data_method_save(&$external_data_method) {
+	// calls method on controller class
+  return entity_get_controller('external_data_method')->save($external_data_method);
+}
+
+
+
+
+// required, because we specified
+// 'controller class' => 'ExternalDataMethodController',
+// in 
+// function external_data_method_entity_info(){
+class ExternalDataMethodController extends DrupalDefaultEntityController {
+	public function save($external_data_method) {
+		// have to extract the fields information into a separate table...
+		
+		
+		// first store the method:
+		drupal_write_record('external_data_method', $external_data_method);
+		field_attach_insert('external_data_method', $external_data_method);
+		module_invoke_all('entity_insert', 'external_data_method', $external_data_method);
+		
+		
+		
+		//(we may have to first DELETE all related fields, if this is an update...
+		// get the fields, and default values:
+		$all_fields = get_object_vars($external_data_method);
+		$field_keys = array_keys($all_fields);
+		$method_field_keys = preg_grep("/External_Data_Field_/", $field_keys);
+		$method_fields = array();
+		foreach($method_field_keys as $key){
+			$method_fields[str_replace("External_Data_Field_","",$key)] = $all_fields[$key];
+		}
+		
+		// now, for each method field, we save to a table, along with the method id
+		$method_id = $external_data_method->id;
+		foreach($method_fields as $fieldname=>$default_value){
+			$fieldObj = new stdClass();
+			$fieldObj->external_data_method_id = $external_data_method->id;
+			$fieldObj->label = 'not needed';
+			$fieldObj->name = $fieldname;
+			$fieldObj->default_value = $default_value;
+			$fieldObj->submit = "Save";
+			$fieldObj->form_id = "external_data_method_add_form";
+			$fieldObj->op = "Save";
+			
+			drupal_write_record('external_data_method_fields', $fieldObj);
+			field_attach_insert('external_data_method_fields', $fieldObj);
+			module_invoke_all('entity_insert', 'external_data_method_fields', $fieldObj);		
+		}
+		
+		return $external_data_method;
+	}
+
+
+};
+
+?>
