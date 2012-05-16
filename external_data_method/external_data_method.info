@@ -1,9 +1,0 @@
-; $Id:Exp $
-name = "External Data Method"
-description = "The Service Method portion of ED module."
-core = "7.x"
-
-datestamp = "1296601519"
-package = "External Data"
-
-files[] = external_data_method.module
